@@ -1,11 +1,10 @@
 package com.dmarcini.app.controllers;
 
+import com.dmarcini.app.htmlparser.HTMLParser;
+import com.dmarcini.app.htmlparser.HTMLTag;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
-import javafx.scene.control.Alert;
-import javafx.scene.control.Button;
-import javafx.scene.control.TextArea;
-import javafx.scene.control.TextField;
+import javafx.scene.control.*;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -21,6 +20,10 @@ public class WebCrawlerController {
     private Button runButton;
     @FXML
     private TextArea HTMLTextArea;
+    @FXML
+    private Label titleLabel;
+
+    private String titleLabelInitText;
 
     public WebCrawlerController() { }
 
@@ -31,11 +34,16 @@ public class WebCrawlerController {
         HTMLTextArea.setEditable(false);
 
         Platform.runLater(() -> URLTextField.requestFocus());
+
+        titleLabelInitText = titleLabel.getText();
     }
 
     @FXML
     private void getHTML() {
-        HTMLTextArea.setText(readHTML(URLTextField.getText()));
+        String HTMLContent = readHTML(URLTextField.getText());
+
+        titleLabel.setText(titleLabelInitText + HTMLParser.getTagContent(HTMLContent, HTMLTag.TITLE));
+        HTMLTextArea.setText(HTMLContent);
     }
 
     private String readHTML(String URLAddress) {
@@ -58,7 +66,7 @@ public class WebCrawlerController {
 
     private void showIncorrectURLAlert() {
         Alert alert = new Alert(Alert.AlertType.ERROR);
-        
+
         alert.setHeaderText("Incorrect URL");
         alert.setContentText("Incorrect URL address. Please type again!");
 
