@@ -9,12 +9,12 @@ import javafx.beans.property.StringProperty;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class WebCrawlerController {
     @FXML
@@ -29,6 +29,10 @@ public class WebCrawlerController {
     private TableColumn<URLTitleProperty, String> URLTableColumn;
     @FXML
     private TableColumn<URLTitleProperty, String> titleTableColumn;
+    @FXML
+    private TextField pathTextField;
+    @FXML
+    private Button saveButton;
 
     private String titleLabelInitText;
 
@@ -37,6 +41,7 @@ public class WebCrawlerController {
     @FXML
     private void initialize() {
         runButton.setOnAction(actionEvent -> getHTML());
+        saveButton.setOnAction(actionEvent -> saveToFile());
 
         URLTableColumn.setCellValueFactory(cellData -> cellData.getValue().getURLProperty());
         titleTableColumn.setCellValueFactory(cellData -> cellData.getValue().getTitleProperty());
@@ -55,14 +60,31 @@ public class WebCrawlerController {
         collectLinksToOtherPages(HTMLContents);
     }
 
+    @FXML
+    private void saveToFile() {
+        Path path = Paths.get(pathTextField.getText());
+
+        try (BufferedWriter bufferedWriter = Files.newBufferedWriter(path)) {
+            for (var utp : URLTableView.getItems()) {
+                String row = utp.getURL() + ";" + utp.getTitle() + "\n";
+
+                bufferedWriter.write(row);
+            }
+
+            showSaveToFileSucceedAlert();
+        } catch (IOException e) {
+            showIncorrectPathAlert();
+        }
+    }
+
     private String readHTML(String URLAddress) {
         final StringBuilder stringBuilder = new StringBuilder();
 
         try {
-            final var urlConnection = new URL(URLAddress).openConnection();
+            final var URLConnection = new URL(URLAddress).openConnection();
 
-            if (urlConnection.getContentType().equals("text/html")) {
-                final var bufferedReader = new BufferedReader(new InputStreamReader(urlConnection.getInputStream(),
+            if (URLConnection.getContentType().equals("text/html")) {
+                final var bufferedReader = new BufferedReader(new InputStreamReader(URLConnection.getInputStream(),
                                                                                     StandardCharsets.UTF_8));
 
                 String nextLine;
@@ -95,9 +117,27 @@ public class WebCrawlerController {
         Alert alert = new Alert(Alert.AlertType.ERROR);
 
         alert.setHeaderText("Incorrect URL");
-        alert.setContentText("Incorrect URL address. Please type again!");
+        alert.setContentText("Incorrect URL address! Please type again.");
 
         URLTextField.clear();
+
+        alert.showAndWait();
+    }
+
+    private void showIncorrectPathAlert() {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+
+        alert.setHeaderText("Incorrect path");
+        alert.setContentText("Incorrect path to save the file! Please type again.");
+
+        alert.showAndWait();
+    }
+
+    private void showSaveToFileSucceedAlert() {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+
+        alert.setHeaderText("File saved");
+        alert.setContentText("Save to file succeed!");
 
         alert.showAndWait();
     }
