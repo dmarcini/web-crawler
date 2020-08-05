@@ -1,63 +1,93 @@
 package com.dmarcini.app.controllers;
 
-import com.dmarcini.app.htmlparser.HTMLParser;
-import com.dmarcini.app.htmlparser.HTMLProperty;
-import com.dmarcini.app.htmlparser.HTMLTag;
+import com.dmarcini.app.workers.WorkersService;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.property.StringProperty;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
+import javafx.util.Duration;
 
-import java.io.*;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
+import java.io.BufferedWriter;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-public class WebCrawlerController {
+public final class WebCrawlerController {
+    private final static int DEFAULT_TIME_LIMIT = 5;
+    private final static int DEFAULT_MAX_DEPTH = Integer.MAX_VALUE;
+
     @FXML
-    private TextField URLTextField;
+    private TextField urlTextField;
     @FXML
     private Button runButton;
-    @FXML
-    private Label titleLabel;
-    @FXML
-    private TableView<URLTitleProperty> URLTableView;
-    @FXML
-    private TableColumn<URLTitleProperty, String> URLTableColumn;
-    @FXML
-    private TableColumn<URLTitleProperty, String> titleTableColumn;
     @FXML
     private TextField pathTextField;
     @FXML
     private Button saveButton;
-
-    private String titleLabelInitText;
-
-    public WebCrawlerController() { }
-
     @FXML
-    private void initialize() {
-        runButton.setOnAction(actionEvent -> getHTML());
-        saveButton.setOnAction(actionEvent -> saveToFile());
+    private TextField workersTextField;
+    @FXML
+    private TextField maximumDepthTextField;
+    @FXML
+    private TextField timeLimitTextField;
+    @FXML
+    private Label elapsedTimeLabel;
+    @FXML
+    private Label parsedPageLabel;
+    @FXML
+    private CheckBox maximumDepthCheckBox;
+    @FXML
+    private CheckBox timeLimitCheckBox;
 
-        URLTableColumn.setCellValueFactory(cellData -> cellData.getValue().getURLProperty());
-        titleTableColumn.setCellValueFactory(cellData -> cellData.getValue().getTitleProperty());
+    private int startButtonClickCounter;
+    private int timeLimit;
+    private int second;
+    private final Timeline timeline;
 
-        Platform.runLater(() -> URLTextField.requestFocus());
+    private WorkersService workersService;
 
-        titleLabelInitText = titleLabel.getText();
+    public WebCrawlerController() {
+        this.startButtonClickCounter = 1;
+        this.second = 0;
+        this.timeline = new Timeline(new KeyFrame(Duration.seconds(1), actionEvent -> {
+            second++;
+            elapsedTimeLabel.setText(String.format("%02d:%02d:%02d", second / 3600, (second % 3600) / 60, second % 60));
+        }));
     }
 
     @FXML
-    private void getHTML() {
-        String HTMLContents = readHTML(URLTextField.getText());
+    private void initialize() {
+        runButton.setOnAction(actionEvent -> runCrawler());
+        saveButton.setOnAction(actionEvent -> saveToFile());
 
-        titleLabel.setText(titleLabelInitText + HTMLParser.getTagContents(HTMLContents, HTMLTag.TITLE));
+        setDisableTextFieldOnCheckBoxAction(maximumDepthCheckBox, maximumDepthTextField);
+        setDisableTextFieldOnCheckBoxAction(timeLimitCheckBox, timeLimitTextField);
 
-        collectLinksToOtherPages(HTMLContents);
+        maximumDepthTextField.setDisable(true);
+        timeLimitTextField.setDisable(true);
+
+        setTextFieldNumericOnly(workersTextField);
+        setTextFieldNumericOnly(maximumDepthTextField);
+        setTextFieldNumericOnly(timeLimitTextField);
+
+        Platform.runLater(() -> urlTextField.requestFocus());
+    }
+
+    @FXML private void runCrawler() {
+        if (workersTextField.getText().isEmpty()) {
+            showNoWorkersNumSpecifiedAlert();
+            return;
+        }
+
+        if (startButtonClickCounter % 2 == 1) {
+            startCrawler();
+        } else {
+            stopCrawler();
+        }
+
+        ++startButtonClickCounter;
     }
 
     @FXML
@@ -65,10 +95,11 @@ public class WebCrawlerController {
         Path path = Paths.get(pathTextField.getText());
 
         try (BufferedWriter bufferedWriter = Files.newBufferedWriter(path)) {
-            for (var utp : URLTableView.getItems()) {
-                String row = utp.getURL() + ";" + utp.getTitle() + "\n";
-
-                bufferedWriter.write(row);
+            for (var crawledPage : workersService.getCrawledPages()) {
+                if (crawledPage.getTitle() != null) {
+                    bufferedWriter.write(crawledPage.getTitle() + ":\n");
+                    bufferedWriter.write(String.join("\n", crawledPage.getLinks()) + "\n");
+                }
             }
 
             showSaveToFileSucceedAlert();
@@ -77,57 +108,47 @@ public class WebCrawlerController {
         }
     }
 
-    private String readHTML(String URLAddress) {
-        final StringBuilder stringBuilder = new StringBuilder();
+    private void startCrawler() {
+        resetTimer();
+        startTimer();
 
-        try {
-            final var URLConnection = new URL(URLAddress).openConnection();
+        runButton.setText("Stop");
+        parsedPageLabel.setText("0");
 
-            if (URLConnection.getContentType().equals("text/html")) {
-                final var bufferedReader = new BufferedReader(new InputStreamReader(URLConnection.getInputStream(),
-                                                                                    StandardCharsets.UTF_8));
+        int workers = Integer.parseInt(workersTextField.getText());
+        int maxDepth = maximumDepthTextField.getText().isEmpty() ? DEFAULT_MAX_DEPTH
+                                                                 : Integer.parseInt(maximumDepthTextField.getText());
 
-                String nextLine;
+        workersService = new WorkersService(workers, maxDepth);
 
-                while ((nextLine = bufferedReader.readLine()) != null) {
-                    stringBuilder.append(nextLine).append(System.lineSeparator());
-                }
-            } else {
-                showIncorrectURLAlert();
+        workersService.execute(urlTextField.getText());
+
+        Timeline runTimeline = new Timeline(new KeyFrame(Duration.millis(10), event -> {
+            parsedPageLabel.setText(String.valueOf(workersService.getCrawledPageNum()));
+
+            if (second >= timeLimit) {
+                runButton.setText("Start");
+
+                workersService.shutdown();
             }
-        } catch (IOException e) {
-            showIncorrectURLAlert();
-        }
+        }));
 
-        return stringBuilder.toString();
+        runTimeline.setCycleCount(Timeline.INDEFINITE);
+        runTimeline.play();
     }
 
-    private void collectLinksToOtherPages(String URLAddress) {
-        for (var line : URLAddress.split("\n")) {
-            String href = HTMLParser.getPropertyValue(line, HTMLProperty.HREF);
-            String title = HTMLParser.getPropertyValue(line, HTMLProperty.TITLE);
+    public void stopCrawler() {
+        stopTimer();
 
-            if (!(href.isEmpty() || title.isEmpty())) {
-                URLTableView.getItems().add(new URLTitleProperty(href, title));
-            }
-        }
-    }
+        runButton.setText("Start");
 
-    private void showIncorrectURLAlert() {
-        Alert alert = new Alert(Alert.AlertType.ERROR);
-
-        alert.setHeaderText("Incorrect URL");
-        alert.setContentText("Incorrect URL address! Please type again.");
-
-        URLTextField.clear();
-
-        alert.showAndWait();
+        workersService.shutdown();
     }
 
     private void showIncorrectPathAlert() {
         Alert alert = new Alert(Alert.AlertType.ERROR);
 
-        alert.setHeaderText("Incorrect path");
+        alert.setHeaderText("Incorrect path.");
         alert.setContentText("Incorrect path to save the file! Please type again.");
 
         alert.showAndWait();
@@ -136,43 +157,47 @@ public class WebCrawlerController {
     private void showSaveToFileSucceedAlert() {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
 
-        alert.setHeaderText("File saved");
+        alert.setHeaderText("File saved.");
         alert.setContentText("Save to file succeed!");
 
         alert.showAndWait();
     }
 
-    static class URLTitleProperty {
-        private final SimpleStringProperty URL = new SimpleStringProperty("");;
-        private final SimpleStringProperty title = new SimpleStringProperty("");;
+    private void showNoWorkersNumSpecifiedAlert() {
+        Alert alert = new Alert(Alert.AlertType.WARNING);
 
-        URLTitleProperty(String URL, String title) {
-            setURL(URL);
-            setTitle(title);
-        }
+        alert.setHeaderText("No workers number specified.");
+        alert.setContentText("The number of workers was not specified!\nPlease enter the number of workers.");
 
-        public String getURL() {
-            return URL.get();
-        }
+        alert.showAndWait();
+    }
 
-        public void setURL(String URL) {
-            this.URL.set(URL);
-        }
+    private void startTimer() {
+        timeLimit = timeLimitTextField.getText().isEmpty() ? DEFAULT_TIME_LIMIT
+                                                           : Integer.parseInt(timeLimitTextField.getText());
 
-        public StringProperty getURLProperty() {
-            return URL;
-        }
+        timeline.setCycleCount(timeLimit);
+        timeline.play();
+    }
 
-        public String getTitle() {
-            return title.get();
-        }
+    private void stopTimer() {
+        timeline.stop();
+    }
 
-        public void setTitle(String title) {
-            this.title.set(title);
-        }
+    private void resetTimer() {
+        elapsedTimeLabel.setText("00:00:00");
+        second = 0;
+    }
 
-        public StringProperty getTitleProperty() {
-            return title;
-        }
+    private void setDisableTextFieldOnCheckBoxAction(CheckBox checkBox, TextField textField) {
+        checkBox.setOnAction(actionEvent -> textField.setDisable(!textField.isDisabled()));
+    }
+
+    private void setTextFieldNumericOnly(TextField textField) {
+        textField.textProperty().addListener((observableValue, oldValue, newValue) -> {
+            if (!newValue.matches("\\d*")) {
+                textField.setText(newValue.replaceAll("[^\\d]", ""));
+            }
+        });
     }
 }

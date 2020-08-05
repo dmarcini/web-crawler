@@ -1,4 +1,4 @@
-package com.dmarcini.app.htmlparser;
+package com.dmarcini.app.htmlutils.htmlparser;
 
 public enum HTMLProperty {
     HREF ("href"),
@@ -10,7 +10,7 @@ public enum HTMLProperty {
         this.lowerCasePropertyName = lowerCasePropertyName;
     }
 
-    public String asLowerCase() {
+    public String toLowerCase() {
         return lowerCasePropertyName;
     }
 }

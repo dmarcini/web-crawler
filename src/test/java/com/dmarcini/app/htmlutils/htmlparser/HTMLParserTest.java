@@ -1,4 +1,4 @@
-package com.dmarcini.app.htmlparser;
+package com.dmarcini.app.htmlutils.htmlparser;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

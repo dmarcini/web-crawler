@@ -1,4 +1,4 @@
-package com.dmarcini.app.htmlparser;
+package com.dmarcini.app.htmlutils.htmlparser;
 
 public enum HTMLTag {
     TITLE ("title");
@@ -9,7 +9,7 @@ public enum HTMLTag {
         this.lowerCaseTagName = lowerCaseTagName;
     }
 
-    public String asLowerCase() {
+    public String toLowerCase() {
         return lowerCaseTagName;
     }
 }
